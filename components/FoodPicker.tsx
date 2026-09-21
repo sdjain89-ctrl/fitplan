@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Loader2, Plus, Search, X } from "lucide-react";
 import { FoodItem } from "../utils/types";
 import { searchFoods } from "../utils/foodDatabase";
+import { searchOpenFoodFacts } from "../utils/openFoodFacts";
 
 export interface AddedFood {
   foodId?: string;
@@ -41,6 +42,28 @@ export default function FoodPicker({
   const [customGrams, setCustomGrams] = useState(100);
 
   const results = useMemo(() => searchFoods(query, customFoods), [query, customFoods]);
+  const [onlineResults, setOnlineResults] = useState<FoodItem[]>([]);
+  const [onlineLoading, setOnlineLoading] = useState(false);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 3) {
+      setOnlineResults([]);
+      setOnlineLoading(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      setOnlineLoading(true);
+      const found = await searchOpenFoodFacts(trimmed, controller.signal);
+      setOnlineResults(found);
+      setOnlineLoading(false);
+    }, 400);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [query]);
 
   if (!open) return null;
 
@@ -48,6 +71,8 @@ export default function FoodPicker({
     setQuery("");
     setSelected(null);
     setGrams(100);
+    setOnlineResults([]);
+    setOnlineLoading(false);
     setCustomName("");
     setCustomCalories("");
     setCustomProtein("");
@@ -151,7 +176,7 @@ export default function FoodPicker({
                 className="w-full rounded-lg border border-slate-200 py-2 pl-9 pr-3 text-sm focus:border-emerald-500 focus:outline-none"
               />
             </div>
-            <div className="max-h-64 space-y-1 overflow-y-auto">
+            <div className="max-h-72 space-y-1 overflow-y-auto">
               {results.map((food) => (
                 <button
                   key={food.id}
@@ -165,9 +190,43 @@ export default function FoodPicker({
                   <span className="text-xs text-slate-500">{Math.round(food.caloriesPer100)} kcal/100g</span>
                 </button>
               ))}
-              {results.length === 0 && (
-                <p className="px-3 py-6 text-center text-sm text-slate-400">No matches. Try custom entry.</p>
+              {results.length === 0 && query.trim().length > 0 && (
+                <p className="px-3 py-4 text-center text-sm text-slate-400">No matches in the local list.</p>
               )}
+              {results.length === 0 && query.trim().length === 0 && (
+                <p className="px-3 py-4 text-center text-sm text-slate-400">Start typing to search foods.</p>
+              )}
+
+              {(onlineLoading || onlineResults.length > 0) && (
+                <div className="pt-2">
+                  <div className="mb-1 flex items-center gap-1.5 px-3 text-xs font-medium text-slate-400">
+                    {onlineLoading && <Loader2 size={12} className="animate-spin" />}
+                    Online database
+                  </div>
+                  {onlineResults.map((food) => (
+                    <button
+                      key={food.id}
+                      onClick={() => {
+                        setSelected(food);
+                        setGrams(food.defaultServingG);
+                      }}
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-slate-50"
+                    >
+                      <span className="font-medium text-slate-800">{food.name}</span>
+                      <span className="text-xs text-slate-500">{Math.round(food.caloriesPer100)} kcal/100g</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {results.length === 0 &&
+                !onlineLoading &&
+                onlineResults.length === 0 &&
+                query.trim().length >= 3 && (
+                  <p className="px-3 py-2 text-center text-sm text-slate-400">
+                    No online matches either. Try custom entry.
+                  </p>
+                )}
             </div>
           </>
         )}
