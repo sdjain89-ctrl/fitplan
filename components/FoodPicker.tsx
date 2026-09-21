@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Loader2, Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Camera, Loader2, Plus, Search, Trash2, X } from "lucide-react";
 import { FoodItem } from "../utils/types";
 import { searchFoods } from "../utils/foodDatabase";
 import { searchOpenFoodFacts } from "../utils/openFoodFacts";
+import { compressImageToDataUrl } from "../utils/imageCompress";
+import { analyzeFoodPhoto, PhotoFoodItem } from "../utils/photoAnalysis";
 
 export interface AddedFood {
   foodId?: string;
@@ -29,7 +31,7 @@ export default function FoodPicker({
   customFoods: FoodItem[];
   onSaveCustomFood: (food: FoodItem) => void;
 }) {
-  const [tab, setTab] = useState<"search" | "custom">("search");
+  const [tab, setTab] = useState<"search" | "photo" | "custom">("search");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<FoodItem | null>(null);
   const [grams, setGrams] = useState(100);
@@ -40,6 +42,13 @@ export default function FoodPicker({
   const [customCarbs, setCustomCarbs] = useState("");
   const [customFat, setCustomFat] = useState("");
   const [customGrams, setCustomGrams] = useState(100);
+
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoAnalyzing, setPhotoAnalyzing] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoItems, setPhotoItems] = useState<PhotoFoodItem[] | null>(null);
+  const [photoNotes, setPhotoNotes] = useState<string | undefined>(undefined);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const results = useMemo(() => searchFoods(query, customFoods), [query, customFoods]);
   const [onlineResults, setOnlineResults] = useState<FoodItem[]>([]);
@@ -79,6 +88,11 @@ export default function FoodPicker({
     setCustomCarbs("");
     setCustomFat("");
     setCustomGrams(100);
+    setPhotoPreview(null);
+    setPhotoAnalyzing(false);
+    setPhotoError(null);
+    setPhotoItems(null);
+    setPhotoNotes(undefined);
     setTab("search");
   }
 
@@ -135,6 +149,58 @@ export default function FoodPicker({
     handleClose();
   }
 
+  async function handlePhotoSelected(file: File) {
+    setPhotoError(null);
+    setPhotoItems(null);
+    setPhotoNotes(undefined);
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
+      setPhotoPreview(dataUrl);
+      setPhotoAnalyzing(true);
+      const result = await analyzeFoodPhoto(dataUrl);
+      setPhotoItems(result.items);
+      setPhotoNotes(result.notes);
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Couldn't analyze that photo");
+    } finally {
+      setPhotoAnalyzing(false);
+    }
+  }
+
+  function updatePhotoItem(index: number, field: keyof PhotoFoodItem, value: string) {
+    setPhotoItems((prev) => {
+      if (!prev) return prev;
+      const next = [...prev];
+      const item = { ...next[index] };
+      if (field === "name") {
+        item.name = value;
+      } else {
+        (item[field] as number) = Number(value) || 0;
+      }
+      next[index] = item;
+      return next;
+    });
+  }
+
+  function removePhotoItem(index: number) {
+    setPhotoItems((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
+  }
+
+  function handleAddPhotoItems() {
+    if (!photoItems || photoItems.length === 0) return;
+    for (const item of photoItems) {
+      onAdd({
+        name: item.name,
+        grams: item.grams,
+        calories: item.calories,
+        protein: item.protein,
+        carbs: item.carbs,
+        fat: item.fat,
+      });
+    }
+    handleClose();
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-center">
       <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
@@ -155,12 +221,20 @@ export default function FoodPicker({
             Search
           </button>
           <button
+            onClick={() => setTab("photo")}
+            className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
+              tab === "photo" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"
+            }`}
+          >
+            Photo
+          </button>
+          <button
             onClick={() => setTab("custom")}
             className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
               tab === "custom" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"
             }`}
           >
-            Custom entry
+            Custom
           </button>
         </div>
 
@@ -279,6 +353,103 @@ export default function FoodPicker({
             >
               <Plus size={16} /> Add to log
             </button>
+          </div>
+        )}
+
+        {tab === "photo" && (
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handlePhotoSelected(file);
+                e.target.value = "";
+              }}
+            />
+
+            {!photoPreview && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-emerald-400 hover:text-emerald-700"
+              >
+                <Camera size={28} />
+                <span className="text-sm font-medium">Take or upload a photo</span>
+                <span className="text-xs text-slate-400">AI estimates calories & macros for you to review</span>
+              </button>
+            )}
+
+            {photoPreview && (
+              <div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoPreview} alt="Food photo" className="mb-3 max-h-48 w-full rounded-xl object-cover" />
+
+                {photoAnalyzing && (
+                  <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-500">
+                    <Loader2 size={16} className="animate-spin" /> Analyzing photo...
+                  </div>
+                )}
+
+                {photoError && (
+                  <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{photoError}</p>
+                )}
+
+                {!photoAnalyzing && photoItems && photoItems.length > 0 && (
+                  <div className="space-y-3">
+                    {photoNotes && <p className="text-xs italic text-slate-400">{photoNotes}</p>}
+                    {photoItems.map((item, i) => (
+                      <div key={i} className="rounded-lg border border-slate-200 p-3">
+                        <div className="mb-2 flex items-center gap-2">
+                          <input
+                            value={item.name}
+                            onChange={(e) => updatePhotoItem(i, "name", e.target.value)}
+                            className="flex-1 rounded-md border border-slate-200 px-2 py-1 text-sm font-medium focus:border-emerald-500 focus:outline-none"
+                          />
+                          <button onClick={() => removePhotoItem(i)} className="rounded p-1 text-slate-300 hover:text-red-500">
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-5 gap-1.5 text-center text-[11px]">
+                          {(["grams", "calories", "protein", "carbs", "fat"] as const).map((field) => (
+                            <div key={field}>
+                              <input
+                                type="number"
+                                value={item[field]}
+                                onChange={(e) => updatePhotoItem(i, field, e.target.value)}
+                                className="w-full rounded-md border border-slate-200 px-1 py-1 text-center text-xs focus:border-emerald-500 focus:outline-none"
+                              />
+                              <div className="mt-0.5 text-slate-400">{field === "grams" ? "g" : field}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      onClick={handleAddPhotoItems}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                    >
+                      <Plus size={16} /> Add {photoItems.length > 1 ? "all" : ""} to log
+                    </button>
+                  </div>
+                )}
+
+                {!photoAnalyzing && (
+                  <button
+                    onClick={() => {
+                      setPhotoPreview(null);
+                      setPhotoItems(null);
+                      setPhotoError(null);
+                    }}
+                    className="mt-3 w-full text-center text-xs font-medium text-slate-500 hover:underline"
+                  >
+                    Retake / choose a different photo
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 

@@ -115,3 +115,19 @@ export interface MealSuggestion {
   targetCalories: number;
   items: { foodId: string; name: string; grams: number }[];
 }
+
+export interface HealthWorkout {
+  type: string;
+  durationMin?: number;
+  caloriesBurned?: number;
+  distanceKm?: number;
+}
+
+export interface HealthDay {
+  date: string;
+  activeEnergyBurnedKcal?: number;
+  steps?: number;
+  restingHeartRate?: number;
+  workouts: HealthWorkout[];
+  updatedAt: string;
+}

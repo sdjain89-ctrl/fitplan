@@ -1,20 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Dumbbell, Flame, Plus, Trash2, UtensilsCrossed } from "lucide-react";
+import { Dumbbell, Flame, Plus, Trash2, UtensilsCrossed, Watch } from "lucide-react";
 import { useLocalStorageState, STORAGE_KEYS } from "../utils/storage";
 import {
   ActivityLogEntry,
   FoodItem,
   FoodLogEntry,
   ExerciseItem,
+  HealthDay,
   UserProfile,
 } from "../utils/types";
 import { DEFAULT_PROFILE } from "../utils/defaultProfile";
 import { calcTargets } from "../utils/calorieCalc";
 import { todayISO, formatDisplayDate, weekdayName } from "../utils/dateUtils";
 import { useWorkoutPlan } from "../utils/useWorkoutPlan";
+import { fetchHealthDay } from "../utils/health";
 import RingProgress from "../components/RingProgress";
 import MacroBar from "../components/MacroBar";
 import StatCard from "../components/StatCard";
@@ -43,6 +45,22 @@ export default function DashboardPage() {
 
   const [foodPickerOpen, setFoodPickerOpen] = useState(false);
   const [activityPickerOpen, setActivityPickerOpen] = useState(false);
+
+  const [healthDay, setHealthDay] = useState<HealthDay | null>(null);
+  const [healthChecked, setHealthChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchHealthDay(todayISO()).then((data) => {
+      if (!cancelled) {
+        setHealthDay(data);
+        setHealthChecked(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const hydrated = profileHydrated && foodHydrated && activityHydrated;
   if (!hydrated) return null;
@@ -195,6 +213,55 @@ export default function DashboardPage() {
           <p className="text-sm text-slate-400">Set up your profile to generate a weekly plan.</p>
         )}
       </div>
+
+      {healthDay && (healthDay.activeEnergyBurnedKcal != null || healthDay.steps != null || healthDay.workouts.length > 0) && (
+        <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-3 flex items-center gap-2 font-semibold text-slate-900">
+            <Watch size={18} className="text-slate-500" /> Synced from Apple Watch
+          </h2>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            {healthDay.activeEnergyBurnedKcal != null && (
+              <div>
+                <div className="text-lg font-bold text-slate-900">{Math.round(healthDay.activeEnergyBurnedKcal)}</div>
+                <div className="text-xs text-slate-500">active kcal</div>
+              </div>
+            )}
+            {healthDay.steps != null && (
+              <div>
+                <div className="text-lg font-bold text-slate-900">{healthDay.steps.toLocaleString()}</div>
+                <div className="text-xs text-slate-500">steps</div>
+              </div>
+            )}
+            {healthDay.restingHeartRate != null && (
+              <div>
+                <div className="text-lg font-bold text-slate-900">{healthDay.restingHeartRate}</div>
+                <div className="text-xs text-slate-500">resting HR</div>
+              </div>
+            )}
+          </div>
+          {healthDay.workouts.length > 0 && (
+            <ul className="mt-3 space-y-1.5 text-sm text-slate-600">
+              {healthDay.workouts.map((w, i) => (
+                <li key={i} className="flex justify-between">
+                  <span>{w.type}</span>
+                  <span className="text-slate-400">
+                    {w.durationMin ? `${w.durationMin} min · ` : ""}
+                    {w.caloriesBurned ? `${w.caloriesBurned} kcal` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="mt-3 text-xs text-slate-400">
+            Informational only — not counted toward your calorie budget above.
+          </p>
+        </div>
+      )}
+      {healthChecked && !healthDay && (
+        <p className="mt-2 text-center text-xs text-slate-400">
+          No Apple Watch data synced yet — see HEALTH_SETUP.md in the repo to connect it.
+        </p>
+      )}
 
       <div className="mt-6 grid gap-4 md:grid-cols-2">
         <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">

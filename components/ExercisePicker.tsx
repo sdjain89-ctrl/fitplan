@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Minus, Plus, Search, X } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import { Camera, Loader2, Minus, Plus, Search, X } from "lucide-react";
 import { ExerciseItem, ExerciseType, StrengthSet } from "../utils/types";
 import { estimateCardioCalories, searchExercises } from "../utils/exerciseDatabase";
+import { compressImageToDataUrl } from "../utils/imageCompress";
+import { analyzeExercisePhoto } from "../utils/photoAnalysis";
 
 export interface AddedActivity {
   exerciseId?: string;
@@ -29,7 +31,7 @@ export default function ExercisePicker({
   onSaveCustomExercise: (exercise: ExerciseItem) => void;
   userWeightKg: number;
 }) {
-  const [tab, setTab] = useState<"search" | "custom">("search");
+  const [tab, setTab] = useState<"search" | "photo" | "custom">("search");
   const [typeFilter, setTypeFilter] = useState<ExerciseType>("strength");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<ExerciseItem | null>(null);
@@ -40,6 +42,17 @@ export default function ExercisePicker({
   const [customType, setCustomType] = useState<ExerciseType>("strength");
   const [customCalories, setCustomCalories] = useState("");
   const [customDuration, setCustomDuration] = useState(30);
+
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoAnalyzing, setPhotoAnalyzing] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoName, setPhotoName] = useState("");
+  const [photoType, setPhotoType] = useState<ExerciseType>("cardio");
+  const [photoDuration, setPhotoDuration] = useState("");
+  const [photoCalories, setPhotoCalories] = useState("");
+  const [photoNotes, setPhotoNotes] = useState<string | undefined>(undefined);
+  const [photoResultReady, setPhotoResultReady] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const results = useMemo(
     () => searchExercises(query, typeFilter, customExercises),
@@ -56,6 +69,15 @@ export default function ExercisePicker({
     setCustomName("");
     setCustomCalories("");
     setCustomDuration(30);
+    setPhotoPreview(null);
+    setPhotoAnalyzing(false);
+    setPhotoError(null);
+    setPhotoName("");
+    setPhotoType("cardio");
+    setPhotoDuration("");
+    setPhotoCalories("");
+    setPhotoNotes(undefined);
+    setPhotoResultReady(false);
     setTab("search");
   }
 
@@ -120,6 +142,38 @@ export default function ExercisePicker({
     handleClose();
   }
 
+  async function handlePhotoSelected(file: File) {
+    setPhotoError(null);
+    setPhotoResultReady(false);
+    try {
+      const dataUrl = await compressImageToDataUrl(file);
+      setPhotoPreview(dataUrl);
+      setPhotoAnalyzing(true);
+      const result = await analyzeExercisePhoto(dataUrl);
+      setPhotoName(result.name ?? "");
+      setPhotoType(result.type ?? "cardio");
+      setPhotoDuration(result.durationMin != null ? String(result.durationMin) : "");
+      setPhotoCalories(result.caloriesBurned != null ? String(result.caloriesBurned) : "");
+      setPhotoNotes(result.notes);
+      setPhotoResultReady(true);
+    } catch (err) {
+      setPhotoError(err instanceof Error ? err.message : "Couldn't analyze that photo");
+    } finally {
+      setPhotoAnalyzing(false);
+    }
+  }
+
+  function handleAddPhoto() {
+    if (!photoName.trim()) return;
+    onAdd({
+      name: photoName.trim(),
+      type: photoType,
+      durationMin: photoDuration ? Number(photoDuration) : undefined,
+      caloriesBurned: Number(photoCalories) || 0,
+    });
+    handleClose();
+  }
+
   function updateSet(index: number, field: keyof StrengthSet, value: number) {
     setSets((prev) => prev.map((s, i) => (i === index ? { ...s, [field]: value } : s)));
   }
@@ -144,12 +198,20 @@ export default function ExercisePicker({
             Search
           </button>
           <button
+            onClick={() => setTab("photo")}
+            className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
+              tab === "photo" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"
+            }`}
+          >
+            Photo
+          </button>
+          <button
             onClick={() => setTab("custom")}
             className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
               tab === "custom" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"
             }`}
           >
-            Custom entry
+            Custom
           </button>
         </div>
 
@@ -278,6 +340,122 @@ export default function ExercisePicker({
             >
               <Plus size={16} /> Add to log
             </button>
+          </div>
+        )}
+
+        {tab === "photo" && (
+          <div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handlePhotoSelected(file);
+                e.target.value = "";
+              }}
+            />
+
+            {!photoPreview && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 py-10 text-slate-500 hover:border-emerald-400 hover:text-emerald-700"
+              >
+                <Camera size={28} />
+                <span className="text-sm font-medium">Photo a watch/machine display</span>
+                <span className="text-xs text-slate-400">AI reads duration & calories for you to review</span>
+              </button>
+            )}
+
+            {photoPreview && (
+              <div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoPreview} alt="Workout display" className="mb-3 max-h-48 w-full rounded-xl object-cover" />
+
+                {photoAnalyzing && (
+                  <div className="flex items-center justify-center gap-2 py-6 text-sm text-slate-500">
+                    <Loader2 size={16} className="animate-spin" /> Analyzing photo...
+                  </div>
+                )}
+
+                {photoError && (
+                  <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{photoError}</p>
+                )}
+
+                {!photoAnalyzing && photoResultReady && (
+                  <div className="space-y-3">
+                    {photoNotes && <p className="text-xs italic text-slate-400">{photoNotes}</p>}
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-500">Activity name</label>
+                      <input
+                        value={photoName}
+                        onChange={(e) => setPhotoName(e.target.value)}
+                        className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+                    <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+                      <button
+                        onClick={() => setPhotoType("strength")}
+                        className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
+                          photoType === "strength" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"
+                        }`}
+                      >
+                        Strength
+                      </button>
+                      <button
+                        onClick={() => setPhotoType("cardio")}
+                        className={`flex-1 rounded-md py-1.5 text-sm font-medium ${
+                          photoType === "cardio" ? "bg-white shadow-sm text-slate-900" : "text-slate-500"
+                        }`}
+                      >
+                        Cardio
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-500">Duration (min)</label>
+                        <input
+                          type="number"
+                          value={photoDuration}
+                          onChange={(e) => setPhotoDuration(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-slate-500">Calories burned</label>
+                        <input
+                          type="number"
+                          value={photoCalories}
+                          onChange={(e) => setPhotoCalories(e.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleAddPhoto}
+                      className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"
+                    >
+                      <Plus size={16} /> Add to log
+                    </button>
+                  </div>
+                )}
+
+                {!photoAnalyzing && (
+                  <button
+                    onClick={() => {
+                      setPhotoPreview(null);
+                      setPhotoResultReady(false);
+                      setPhotoError(null);
+                    }}
+                    className="mt-3 w-full text-center text-xs font-medium text-slate-500 hover:underline"
+                  >
+                    Retake / choose a different photo
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
