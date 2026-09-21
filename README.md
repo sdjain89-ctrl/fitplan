@@ -25,6 +25,23 @@ account needed); photo scanning and Apple Watch sync use a small backend (see
   workout, today's logged food/activity, and synced Apple Watch data.
 - **Weekly plan** — an auto-generated training split (3-6 days/week: full body, upper/lower, or
   push/pull/legs) and a sample meal template built to hit your targets.
+- **Installable iOS app** — a Progressive Web App: add it to your iPhone home screen for a
+  full-screen, native-feeling app icon, with offline-capable caching so it still loads without
+  signal. See **Installing on iPhone** below.
+
+## Installing on iPhone
+
+FitPlan is a Progressive Web App (PWA) rather than an App Store app — no Apple Developer
+account or app review needed, and it updates itself every time you deploy.
+
+1. Open the live URL in **Safari** on your iPhone (must be Safari, not Chrome, for this step).
+2. Tap the **Share** icon (square with an arrow) in the toolbar.
+3. Scroll down and tap **Add to Home Screen**.
+4. Tap **Add**.
+
+You'll get a home screen icon that launches full-screen (no Safari address bar), with its own
+app switcher entry. The app will also prompt you with this same instruction the first time you
+visit in Safari, until you dismiss it.
 
 ## Stack
 
@@ -66,3 +83,8 @@ targets and a weekly plan. Photo scanning and Apple Watch sync require the env v
 - `utils/workoutPlanner.ts` / `utils/mealPlanner.ts` — weekly plan generation
 - `utils/storage.ts` — `localStorage`-backed state hook
 - `utils/redis.ts` / `utils/health.ts` — Apple Watch sync storage + client fetch helper
+- `app/manifest.ts` — PWA manifest (name, icons, standalone display)
+- `app/icon.png` / `app/apple-icon.png` — favicon and iOS home-screen icon (Next.js file
+  convention, auto-linked in `<head>`)
+- `public/sw.js` / `components/ServiceWorkerRegister.tsx` — offline app-shell caching
+- `components/InstallPrompt.tsx` — "Add to Home Screen" hint shown to iOS Safari visitors
